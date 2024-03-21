@@ -62,11 +62,15 @@ def get_transform():
     """Apply random color changes to the image and normalization"""
 
     custom_transforms = []
-    custom_transforms.append(v2.ColorJitter(brightness=0.5, contrast=0.5, hue=0.5))
+    custom_transforms.append(transforms.Resize((1024, 1024))
+    custom_transforms.append(transforms.ToTensor())
+    custom_transforms.append(transforms.RandomHorizontalFlip(p=0.5))
+    custom_transforms.append(transforms.RandomVerticalFlip(p=0.5))
+    custom_transforms.append(transforms.ColorJitter(brightness=0.5, contrast=0.5, hue=0.5))
     custom_transforms.append(
         v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     )
-    return torchvision.transforms.Compose(custom_transforms)
+    return transforms.Compose(custom_transforms)
 
 
 class TextileDataset(Dataset):
@@ -75,21 +79,6 @@ class TextileDataset(Dataset):
         self.image_transform = transform
         self.coco = COCO(annotation)
         self.ids = list(sorted(self.coco.imgs.keys()))
-
-    def transforms(self, image, mask):
-        """Apply transforms to both image and mask"""
-
-        # Horizontal flip
-        if random.random() > 0.5:
-            image = TF.hflip(image)
-            mask = TF.hflip(mask)
-
-        # Vertical flip
-        if random.random() > 0.5:
-            image = TF.vflip(image)
-            mask = TF.vflip(mask)
-
-        return image, mask
 
     def __getitem__(self, index):
         # Qualitex coco file
@@ -127,22 +116,25 @@ class TextileDataset(Dataset):
             mask += coco.annToMask(coco_annotation[i])
 
         # Image and Mask Visualization
-        plt.figure(1)
-        plt.imshow(img)
+        #plt.figure(1)
+        #plt.imshow(img)
 
-        plt.figure(2)
-        plt.imshow(mask)
+        #plt.figure(2)
+        #plt.imshow(mask)
 
-        plt.show()
+        #plt.show()
 
         if self.image_transform is not None:
-            img, mask = self.transforms(img, mask)
-            img = self.image_transform(img)
+            img, mask, bboxes = self.transforms(img, mask, bboxes)
 
+        img = torch.unsqueeze(img, 0)
+        mask = torch.unsqueeze(mask, 0)
+        bboxes = torch.unsqueeze(bboxes, 0)
+        
         return (
-            torch.tensor(mask).float(),
-            torch.tensor(img).float(),
-            torch.tensor(bboxes).float(),
+            mask,
+            img,
+            bboxes,
             basename,
         )
 
@@ -152,24 +144,21 @@ class TextileDataset(Dataset):
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "-r",
     "--root_path",
     type=str,
     default="data",
     help="path to training images",
 )
 parser.add_argument(
-    "-t",
     "--train_annotations_path",
     type=str,
-    default="data/annotations_qualitex_reviewed_10_01_2024.json",
+    default="data/annotations_qualitex_reviewed_19_03_2024.json",
     help="path to training annotations",
 )
 parser.add_argument(
-    "-v",
     "--valid_annotations_path",
     type=str,
-    default="data/annotations_qualitex_reviewed_10_01_2024.json",
+    default="data/annotations_qualitex_reviewed_19_03_2024.json",
     help="path to validation annotations",
 )
 parser.add_argument("-task_name", type=str, default="TextileSAM-ViT-B")
@@ -327,13 +316,13 @@ def main():
     best_loss = 1e10
     train_dataset = TextileDataset(
         root=os.path.join(args.root_path, "train"),
-        annotation=args.train_annotation_path,
+        annotation=args.train_annotations_path,
         transform=get_transform(),
     )
 
     val_dataset = TextileDataset(
-        root=os.path.join(args.root_path, "val"),
-        annotation=args.val_annotation_path,
+        root=os.path.join(args.root_path, "train"), #val
+        annotation=args.train_annotations_path, #args.val_annotations_path,
         transform=None,
     )
 

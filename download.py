@@ -10,6 +10,7 @@ import csv
 
 AWS_BUCKET = "aqc-lambda-tiles-prod"
 OUTPUT_DIR = "data/train"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def download_one_file(bucket: str, output: str, client: boto3.client, s3_file: str):
