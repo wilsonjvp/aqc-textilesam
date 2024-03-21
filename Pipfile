@@ -18,6 +18,7 @@ pillow = "*"
 wandb = "*"
 pandas = "*"
 boto3 = "*"
+jupyterlab = "*"
 
 [dev-packages]
 
