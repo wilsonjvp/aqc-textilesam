@@ -162,3 +162,5 @@ cython_debug/
 # Added manually
 *.jpg
 *.pth
+*.lock
+work_dir/
