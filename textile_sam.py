@@ -31,6 +31,24 @@ seed = 23
 torch.manual_seed(seed)
 
 
+def show_mask(mask, ax, random_color=False):
+    if random_color:
+        color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
+    else:
+        color = np.array([251 / 255, 252 / 255, 30 / 255, 0.6])
+    h, w = mask.shape[-2:]
+    mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
+    ax.imshow(mask_image)
+
+
+def show_box(box, ax):
+    x0, y0 = box[0], box[1]
+    w, h = box[2] - box[0], box[3] - box[1]
+    ax.add_patch(
+        plt.Rectangle((x0, y0), w, h, edgecolor="blue", facecolor=(0, 0, 0, 0), lw=2)
+    )
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--root_path",
@@ -125,9 +143,8 @@ class TextileSAM(nn.Module):
 
     def forward(self, image, boxes):
         image_embedding = self.image_encoder(image)  # (B, 256, 64, 64)
-        print("image embedding", image_embedding.shape)
         predicted_masks = torch.zeros(
-            (image.shape[0], boxes.shape[1], image.shape[2], image.shape[3]),
+            (boxes.shape[0], image.shape[0], image.shape[2], image.shape[3]),
             device=image.device,
         )
         # do not compute gradients for prompt encoder
@@ -139,7 +156,7 @@ class TextileSAM(nn.Module):
                 )
                 if len(box_torch.shape) == 2:
                     box_torch = box_torch[:, None, :]  # (B, 1, 4)
-                    print("box", box_torch.shape)
+                    # print("box", box_torch.shape)
                 sparse_embeddings, dense_embeddings = self.prompt_encoder(
                     points=None,
                     boxes=box_torch,
@@ -159,14 +176,22 @@ class TextileSAM(nn.Module):
                 mode="bilinear",
                 align_corners=False,
             )
-            for j in range(len(ori_res_masks)):
-                plt.figure(j)
-                plt.imshow(ori_res_masks[0, 0, ...].detach().numpy())
-            plt.show()
-
-            print("pred mask", ori_res_masks.shape)
-            print("predicted mask to fill", predicted_masks.shape)
+            # # TODO
+            # for j in range(len(ori_res_masks)):
+            #     plt.figure(j)
+            #     plt.imshow(ori_res_masks[0, 0, ...].detach().numpy())
+            # plt.show()
+            # print("image embedding", image_embedding.shape)
+            # print("bboxes", boxes.shape)
+            # print(
+            #     "Shape of predicted mask to fill",
+            #     (image.shape[0], boxes.shape[1], image.shape[2], image.shape[3]),
+            # )
+            # print("pred mask", ori_res_masks.shape)
+            # print("predicted mask to fill", predicted_masks.shape)
             predicted_masks[:, i, :, :] = ori_res_masks.squeeze(1)
+
+        return predicted_masks
 
     def inference(
         self,
@@ -293,64 +318,64 @@ def main():
     for epoch in range(start_epoch, num_epochs):
         train_epoch_loss = 0
         for step, (img, target) in enumerate(train_dataloader):
-            # Aggregate all masks
-            masks = target["masks"][0, 0, :, :]
-            for mask in target["masks"]:
-                masks = masks.logical_or(mask[0, :, :])
-            masks = torch.unsqueeze(masks, 0)
-            masks = torch.unsqueeze(masks, 0)
-            # masks = target["masks"]
-            # masks = target["masks"].permute(1, 0, 2, 3)
-            bboxes = target["boxes"].permute(1, 0, 2)
-            print(bboxes)
-            print(img.shape, masks.shape, bboxes.shape)
-            exit()
-            # Visualize img and mask
-            plt.figure(1)
-            plt.imshow(img[0, ...].permute(1, 2, 0).numpy())
+            if "masks" in target.keys():
+                # TODO visualize bboxes and masks correspond to each other
+                # Aggregate all masks
+                # masks = target["masks"][0, 0, :, :]
 
-            plt.figure(2)
-            plt.imshow(masks[0, 0, ...])
+                # for mask in target["masks"]:
+                #     masks = masks.logical_or(mask[0, :, :])
+                # masks = torch.unsqueeze(masks, 0)
+                # masks = torch.unsqueeze(masks, 0)
+                # masks = target["masks"]
+                masks = target["masks"].permute(1, 0, 2, 3)
+                bboxes = target["boxes"].permute(1, 0, 2)
+                # # Visualize img and mask
+                # plt.figure(1)
+                # plt.imshow(img[0, ...].permute(1, 2, 0).numpy())
 
-            plt.show()
+                # plt.figure(2)
+                # plt.imshow(masks[0, 0, ...])
 
-            # img = torch.flatten(img, start_dim=0, end_dim=1)
-            # masks = torch.flatten(masks, start_dim=0, end_dim=1)
-            # bboxes = torch.flatten(bboxes, start_dim=0, end_dim=1)
-            optimizer.zero_grad()
-            boxes_np = bboxes.detach().cpu().numpy()
-            masks, img = masks.to(device), img.to(device)
-            if args.use_amp:
-                ## AMP
-                if torch.cuda.is_available():
-                    device_type = "cuda"
+                # plt.show()
+
+                # img = torch.flatten(img, start_dim=0, end_dim=1)
+                # masks = torch.flatten(masks, start_dim=0, end_dim=1)
+                # bboxes = torch.flatten(bboxes, start_dim=0, end_dim=1)
+                optimizer.zero_grad()
+                boxes_np = bboxes.detach().cpu().numpy()
+                masks, img = masks.to(device), img.to(device)
+                if args.use_amp:
+                    ## AMP
+                    if torch.cuda.is_available():
+                        device_type = "cuda"
+                    else:
+                        device_type = "cpu"
+                    with torch.autocast(device_type=device_type, dtype=torch.float16):
+                        texsam_pred = textile_model(img, boxes_np)
+                        loss = seg_loss(texsam_pred, masks) + ce_loss(
+                            texsam_pred, masks.float()
+                        )
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad()
                 else:
-                    device_type = "cpu"
-                with torch.autocast(device_type=device_type, dtype=torch.float16):
                     texsam_pred = textile_model(img, boxes_np)
-                    loss = seg_loss(texsam_pred, masks) + ce_loss(
-                        texsam_pred, masks.float()
+                    # print(texsam_pred, masks.shape)
+                    seg_loss_ = seg_loss(texsam_pred, masks)
+                    ce_loss_ = ce_loss(texsam_pred, masks.float())
+                    loss = seg_loss_ + ce_loss_
+                    loss.backward()
+                    optimizer.step()
+                    optimizer.zero_grad()
+
+                    print(
+                        f"Epoch: {epoch}, Step: {step}, seg_loss: {seg_loss_.item()}, ce_loss_: {ce_loss_.item()}"
                     )
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
-            else:
-                texsam_pred = textile_model(img, boxes_np)
-                print(texsam_pred, masks.shape)
-                seg_loss_ = seg_loss(texsam_pred, masks)
-                ce_loss_ = ce_loss(texsam_pred, masks.float())
-                loss = seg_loss_ + ce_loss_
-                loss.backward()
-                optimizer.step()
-                optimizer.zero_grad()
 
-                print(
-                    f"Epoch: {epoch}, Step: {step}, seg_loss: {seg_loss_.item()}, ce_loss_: {ce_loss_.item()}"
-                )
-
-            train_epoch_loss += loss.item()
-            iter_num += 1
+                train_epoch_loss += loss.item()
+                iter_num += 1
 
         train_epoch_loss /= step
         train_losses.append(train_epoch_loss)
@@ -362,28 +387,30 @@ def main():
 
         val_epoch_loss = 0
         for step, (img, target) in enumerate(val_dataloader):
-            img = torch.unsqueeze(img, 0)
-            masks = torch.unsqueeze(target["masks"], 0)
-            bboxes = torch.unsqueeze(target["boxes"], 0)
+            if "masks" in target.keys():
+                masks = target["masks"].permute(1, 0, 2, 3)
+                bboxes = target["boxes"].permute(1, 0, 2)
+                # img = torch.unsqueeze(img, 0)
+                # masks = torch.unsqueeze(target["masks"], 0)
+                # bboxes = torch.unsqueeze(target["boxes"], 0)
 
-            img = torch.flatten(img, start_dim=0, end_dim=1)
-            masks = torch.flatten(masks, start_dim=0, end_dim=1)
-            bboxes = torch.flatten(bboxes, start_dim=0, end_dim=1)
-            boxes_np = bboxes.detach().cpu().numpy()
-            masks, img = masks.to(device), img.to(device)
-            print(img.shape, masks.shape, boxes_np.shape)
-            with torch.no_grad():
-                texsam_pred = textile_model(img, boxes_np)
-                seg_loss_ = seg_loss(texsam_pred, masks)
-                ce_loss_ = ce_loss(texsam_pred, masks.float())
-                loss = seg_loss_ + ce_loss_
+                # img = torch.flatten(img, start_dim=0, end_dim=1)
+                # masks = torch.flatten(masks, start_dim=0, end_dim=1)
+                # bboxes = torch.flatten(bboxes, start_dim=0, end_dim=1)
+                boxes_np = bboxes.detach().cpu().numpy()
+                masks, img = masks.to(device), img.to(device)
+                with torch.no_grad():
+                    texsam_pred = textile_model(img, boxes_np)
+                    seg_loss_ = seg_loss(texsam_pred, masks)
+                    ce_loss_ = ce_loss(texsam_pred, masks.float())
+                    loss = seg_loss_ + ce_loss_
 
-            print(
-                f"Epoch: {epoch}, Step: {step}, val_seg_loss: {seg_loss_.item()}, val_ce_loss_: {ce_loss_.item()}"
-            )
+                print(
+                    f"Epoch: {epoch}, Step: {step}, val_seg_loss: {seg_loss_.item()}, val_ce_loss_: {ce_loss_.item()}"
+                )
 
-            val_epoch_loss += loss.item()
-            iter_num += 1
+                val_epoch_loss += loss.item()
+                iter_num += 1
         val_epoch_loss /= step
         val_losses.append(val_epoch_loss)
         if args.use_wandb:
