@@ -19,6 +19,8 @@ wandb = "*"
 pandas = "*"
 boto3 = "*"
 jupyterlab = "*"
+tifffile = "*"
+tabulate = "*"
 
 [dev-packages]
 
