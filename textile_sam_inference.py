@@ -21,6 +21,7 @@ import shutil
 import json
 from pycocotools.coco import COCO
 from PIL import Image
+import pandas as pd
 
 if torch.cuda.is_available():
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -114,7 +115,7 @@ class TextileSAM(nn.Module):
 
         return predicted_masks
 
-    def inference(self, img_embed, boxes, H=1024, W=4096):
+    def inference(self, img_embed, boxes, H=1024, W=1024):
         predicted_masks = np.zeros((img_embed.shape[0], boxes.shape[1], H, W))
         for i in range(boxes.shape[1]):
             box = boxes[:, i, :]
@@ -143,7 +144,7 @@ class TextileSAM(nn.Module):
                 align_corners=False,
             )  # (1, 1, gt.shape)
             low_res_pred = low_res_pred.squeeze().cpu().numpy()  # (256, 256)
-            textsam_seg = (low_res_pred > 0.5).astype(np.uint8)
+            # textsam_seg = (low_res_pred > 0.5).astype(np.uint8)
             predicted_masks[:, i, :, :] = textsam_seg
         return predicted_masks
 
@@ -169,7 +170,8 @@ def textilesam_inference(self, img_embed, boxes, H=1024, W=4096):
             multimask_output=False,
         )
 
-        low_res_pred = torch.sigmoid(low_res_logits)  # (1, 1, 256, 256)
+        # low_res_pred = torch.sigmoid(low_res_logits)  # (1, 1, 256, 256)
+        low_res_pred = low_res_logits
 
         low_res_pred = F.interpolate(
             low_res_pred,
@@ -178,8 +180,8 @@ def textilesam_inference(self, img_embed, boxes, H=1024, W=4096):
             align_corners=False,
         )  # (1, 1, gt.shape)
         low_res_pred = low_res_pred.squeeze().cpu().numpy()  # (256, 256)
-        textsam_seg = (low_res_pred > 0.5).astype(np.uint8)
-        predicted_masks[:, i, :, :] = textsam_seg
+        # textsam_seg = (low_res_pred > 0.5).astype(np.uint8)
+        predicted_masks[:, i, :, :] = low_res_pred
     return predicted_masks
 
 
@@ -196,24 +198,39 @@ parser.add_argument(
     default="data/annotations_qualitex_reviewed_22_03_2024.json",
     help="path to testation annotations",
 )
+parser.add_argument(
+    "--output_segmentation",
+    type=str,
+    default="anomaly_maps/fabric/test/defect",
+    help="path to output segmentation predictions",
+)
+parser.add_argument(
+    "--output_masks",
+    type=str,
+    default="evaluation/fabric/ground_truth/defect",
+    help="path to output ground truth masks",
+)
 parser.add_argument("--device", type=str, default="cuda:0", help="device")
 parser.add_argument(
     "-chk",
     "--checkpoint",
     type=str,
-    default="weights/textile_vit_b.pth",
+    default="weights/textilesam_vit_b.pth",
     help="path to the trained model",
 )
 parser.add_argument("-num_workers", type=int, default=4)
 parser.add_argument("-model_type", type=str, default="vit_b")
 parser.add_argument("-work_dir", type=str, default="./work_dir")
-parser.add_argument("-width", type=int, default=4096)
+parser.add_argument("-width", type=int, default=1024)
 parser.add_argument("-height", type=int, default=1024)
 parser.add_argument("-heating_num", type=int, default=50)
 parser.add_argument("-sample_rate", type=int, default=4)
 
 args = parser.parse_args()
 
+
+os.makedirs(args.output_segmentation, exist_ok=True)
+os.makedirs(args.output_masks, exist_ok=True)
 
 if torch.cuda.is_available:
     device = torch.device(args.device)
@@ -240,21 +257,30 @@ test_dataset = datasets.CocoDetection(
     transforms=test_transforms,
 )
 test_dataset = datasets.wrap_dataset_for_transforms_v2(
-    test_dataset, target_keys=["boxes", "masks"]
+    test_dataset, target_keys=["boxes", "masks", "image_id"]
 )
 
 print("Number of test samples: ", len(test_dataset))
 
 test_dataloader = DataLoader(
     test_dataset,
-    batch_size=args.batch_size,
-    shuffle=True,
+    batch_size=1,
     num_workers=args.num_workers,
     pin_memory=True,
 )
 
+with open(args.test_annotations_path, "r") as j:
+    data = json.load(j)
+
+df_images = pd.DataFrame(data["images"])
+
+count = 0
 for step, (img, target) in enumerate(test_dataloader):
-    if "masks" in target.keys():
+    image_id = target["image_id"].cpu().numpy()[0]
+    image_name = df_images[df_images.id == image_id]["file_name"].values[0]
+    print(step, image_name)
+
+    if "masks" in target.keys() and count < 20:
         masks = target["masks"].permute(1, 0, 2, 3)
         bboxes = target["boxes"].permute(1, 0, 2)
         boxes_np = bboxes.detach().cpu().numpy()
@@ -264,7 +290,28 @@ for step, (img, target) in enumerate(test_dataloader):
         textilesam_seg = textilesam_inference(
             textilesam_model, image_embedding, boxes_np, args.height, args.width
         )
-        print("textilesam", textilesam_seg.shape)
-        print("data", img.shape)
-        print("label", masks.shape)
-        break
+        # print("textilesam", textilesam_seg.shape)
+        # print("image", img.shape)
+        # print("target mask", masks.shape)
+        
+        # # Save predictions and masks
+        if len(textilesam_seg) > 1:
+            for i in range(1, len(textilesam_seg)):
+                # textilesam_seg[0, :, :, :] += textilesam_seg[i, :, :, :]
+                masks[0, :, :, :] += masks[i, :, :, :]
+        # else:
+        # Save prediction
+        textilesam_seg = np.mean(textilesam_seg, axis=0, keepdims=True)[0,0,...]
+        pred = Image.fromarray(textilesam_seg)
+        image_name = image_name.split(".")[0] + ".tif"
+        path_to_save = os.path.join(args.output_segmentation, image_name)
+        pred.save(path_to_save)
+        # Save ground truth
+        masks = masks.cpu().numpy()
+        masks = np.interp(masks[0,0,...], (0, np.max(masks)), (0, 255))
+        gt = Image.fromarray(masks).convert("L")
+        image_name = image_name.split(".")[0] + ".png"
+        path_to_save = os.path.join(args.output_masks, image_name)
+        gt.save(path_to_save)
+
+        count += 1

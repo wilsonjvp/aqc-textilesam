@@ -79,12 +79,12 @@ def parse_dataset_files(object_name, dataset_base_dir, anomaly_maps_dir):
     prediction_filenames = []
 
     # Test images are located here.
-    test_dir = path.join(dataset_base_dir, object_name, 'test')
+    # test_dir = path.join(dataset_base_dir, object_name, 'test')
     gt_base_dir = path.join(dataset_base_dir, object_name, 'ground_truth')
     anomaly_maps_base_dir = path.join(anomaly_maps_dir, object_name, 'test')
 
     # List all ground truth and corresponding anomaly images.
-    for subdir in listdir(str(test_dir)):
+    for subdir in listdir(str(gt_base_dir)):
 
         if not subdir.replace('_', '').isalpha():
             continue
@@ -92,13 +92,13 @@ def parse_dataset_files(object_name, dataset_base_dir, anomaly_maps_dir):
         # Get paths to all test images in the dataset for this subdir.
         test_images = [path.splitext(file)[0]
                        for file
-                       in listdir(path.join(test_dir, subdir))
+                       in listdir(path.join(gt_base_dir, subdir))
                        if path.splitext(file)[1] == '.png']
 
         # If subdir is not 'good', derive corresponding GT names.
         if subdir != 'good':
             gt_filenames.extend(
-                [path.join(gt_base_dir, subdir, file + '_mask.png')
+                [path.join(gt_base_dir, subdir, file + '.png')
                  for file in test_images])
         else:
             # No ground truth maps exist for anomaly-free images.

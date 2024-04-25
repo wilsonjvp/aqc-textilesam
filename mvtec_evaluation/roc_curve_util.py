@@ -54,6 +54,7 @@ def compute_classification_roc(
     # the threshold.
     next_score = None
 
+    epsilon = 1e-10
     for i, (current_score, label) in enumerate(sorted_samples):
 
         if label == 0:
@@ -67,8 +68,8 @@ def compute_classification_roc(
             next_score = None  # end of list
 
         if (next_score != current_score) or (next_score is None):
-            fprs.append(num_fp / num_ok)
-            tprs.append(num_tp / num_nok)
+            fprs.append(num_fp / (num_ok + epsilon))
+            tprs.append(num_tp / (num_nok + epsilon))
 
     # Return (FPR, TPR) pairs in increasing order.
     fprs = fprs[::-1]
