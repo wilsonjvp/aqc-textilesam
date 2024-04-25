@@ -150,7 +150,7 @@ class TextileSAM(nn.Module):
 
 @torch.no_grad()
 def textilesam_inference(self, img_embed, boxes, H=1024, W=4096):
-    predicted_masks = np.zeros((img_embed.shape[0], boxes.shape[1], H, W))
+    predicted_masks = np.zeros((boxes.shape[0], img_embed.shape[0], H, W))
     for i in range(boxes.shape[1]):
         box = boxes[:, i, :]
         box_torch = torch.as_tensor(box, dtype=torch.float, device=img_embed.device)
@@ -185,37 +185,29 @@ def textilesam_inference(self, img_embed, boxes, H=1024, W=4096):
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "-i",
-    "--tr_npy_path",
+    "--root_path",
     type=str,
-    default="defect/data",
-    help="path to training npy files; two subfolders: gts and imgs",
+    default="data",
+    help="path to training images",
 )
 parser.add_argument(
-    "-o",
-    "--seg_path",
+    "--test_annotations_path",
     type=str,
-    default="defect/output",
-    help="path to the segmentation folder",
-)
-parser.add_argument(
-    "--box",
-    type=list,
-    default=[10, 200, 100, 250],  # [95, 255, 190, 350]
-    help="bounding box of the segmentation target",
+    default="data/annotations_qualitex_reviewed_22_03_2024.json",
+    help="path to testation annotations",
 )
 parser.add_argument("--device", type=str, default="cuda:0", help="device")
 parser.add_argument(
     "-chk",
     "--checkpoint",
     type=str,
-    default="weights/defect_vit_b.pth",
+    default="weights/textile_vit_b.pth",
     help="path to the trained model",
 )
 parser.add_argument("-num_workers", type=int, default=4)
 parser.add_argument("-model_type", type=str, default="vit_b")
 parser.add_argument("-work_dir", type=str, default="./work_dir")
-parser.add_argument("-width", type=int, default=1024)
+parser.add_argument("-width", type=int, default=4096)
 parser.add_argument("-height", type=int, default=1024)
 parser.add_argument("-heating_num", type=int, default=50)
 parser.add_argument("-sample_rate", type=int, default=4)
@@ -244,7 +236,7 @@ test_transforms = transforms.Compose(
 
 test_dataset = datasets.CocoDetection(
     root=os.path.join(args.root_path, "train"),
-    annFile=args.train_annotations_path,
+    annFile=args.test_annotations_path,
     transforms=test_transforms,
 )
 test_dataset = datasets.wrap_dataset_for_transforms_v2(
