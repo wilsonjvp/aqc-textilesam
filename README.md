@@ -35,6 +35,12 @@ To be able to charge the trained model using SAM, it is needed to change the for
 python convert_ckpt.py
 ```
 
+# Run inference
+To generate all anomaly maps and masks for evaluation run:
+```
+python textile_sam_inference.py --test_annotation_path path/to/test/coco/file
+```
+
 # Evaluate model using mvtec evaluation script
 Launch the following command:
 ```
