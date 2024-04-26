@@ -29,8 +29,8 @@ def download_one_file(bucket: str, output: str, client: boto3.client, s3_file: s
     )
 
 
-def get_files_to_download():
-    path_to_annotation = "data/annotations_qualitex_reviewed_19_03_2024.json"
+def get_files_to_download(coco_file_dir):
+    path_to_annotation = coco_file_dir
     with open(path_to_annotation, "r") as j:
         data = json.load(j)
 
@@ -39,8 +39,31 @@ def get_files_to_download():
     return files
 
 
+def parse_user_arguments():
+    """Parse user arguments for the evaluation of a method on the MVTec AD
+    dataset.
+
+    Returns:
+        Parsed user arguments.
+    """
+    parser = argparse.ArgumentParser(description="""Parse user arguments.""")
+
+    parser.add_argument('--coco_file_dir',
+                        default="data/annotations_qualitex_reviewed_22_03_2024.json",
+                        required=True,
+                        help="""Path to the json file containing the annotations in COCO format""")
+
+
+    args = parser.parse_args()
+
+    return args
+
+
 def main():
-    files_to_download = get_files_to_download()
+    # parse arguments
+    args = parse_user_arguments()
+
+    files_to_download = get_files_to_download(args.coco_file_dir)
     # Creating only one session and one client
     session = boto3.Session()
     client = session.client("s3")

@@ -280,7 +280,7 @@ for step, (img, target) in enumerate(test_dataloader):
     image_name = df_images[df_images.id == image_id]["file_name"].values[0]
     print(step, image_name)
 
-    if "masks" in target.keys() and count < 20:
+    if "masks" in target.keys() and count < 30:
         masks = target["masks"].permute(1, 0, 2, 3)
         bboxes = target["boxes"].permute(1, 0, 2)
         boxes_np = bboxes.detach().cpu().numpy()
