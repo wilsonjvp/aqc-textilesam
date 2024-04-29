@@ -22,6 +22,7 @@ jupyterlab = "*"
 tifffile = "*"
 tabulate = "*"
 scipy = "*"
+timm = "*"
 
 [dev-packages]
 

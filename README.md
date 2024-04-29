@@ -58,3 +58,23 @@ table. It requires only a single user argument:
   `evaluate_experiment.py` or `evaluate_multiple_experiments.py`.
 
 for a more detailed guide please read `mvtec_evaluation/README_EVAL.md`.
+
+# Convert SAM model to ONNX
+For this step is used [samexporter](https://github.com/vietanhdev/samexporter#sam-exporter), install it from source repository.
+
+First convert image encoder:
+```
+python -m samexporter.export_encoder --checkpoint weights/textilesam_vit_b.pth \
+    --output weights/textilesam_vit_b.encoder.onnx \
+    --model-type vit_b \
+    --quantize-out weights/textilesam_vit_b.encoder.quant.onnx \
+    --use-preprocess
+```
+Second convert mask decoder:
+```
+python -m samexporter.export_decoder --checkpoint weights/textilesam_vit_b.pth \
+    --output weights/textilesam_vit_b.decoder.onnx \
+    --model-type vit_b \
+    --quantize-out weights/textilesam_vit_b.decoder.quant.onnx \
+    --return-single-mask
+```

@@ -166,3 +166,4 @@ cython_debug/
 work_dir/
 *.png
 *.tif
+*.onnx
