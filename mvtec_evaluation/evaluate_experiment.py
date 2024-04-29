@@ -10,6 +10,7 @@ import argparse
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 import generic_util as util
 from pro_curve_util import compute_pro
@@ -82,6 +83,7 @@ def parse_dataset_files(object_name, dataset_base_dir, anomaly_maps_dir):
     # test_dir = path.join(dataset_base_dir, object_name, 'test')
     gt_base_dir = path.join(dataset_base_dir, object_name, 'ground_truth')
     anomaly_maps_base_dir = path.join(anomaly_maps_dir, object_name, 'test')
+    print(gt_base_dir)
 
     # List all ground truth and corresponding anomaly images.
     for subdir in listdir(str(gt_base_dir)):
@@ -158,6 +160,18 @@ def calculate_au_pro_au_roc(gt_filenames,
         anomaly_maps=predictions,
         ground_truth_maps=ground_truth)
 
+    if "VIS" in gt_name:
+        channel = "visible"
+    else:
+        channel = "infrared"
+
+    plt.figure()
+    plt.plot(pro_curve[0], pro_curve[1], "-")
+    plt.title("PRO Curve - Localization")
+    plt.xlabel("FPR - False Positive Rate")
+    plt.ylabel("TPR - True Positive Rate")
+    plt.savefig(f"./metrics/pro_curve_{channel}.jpg")
+
     # Compute the area under the PRO curve.
     au_pro = util.trapezoid(
         pro_curve[0], pro_curve[1], x_max=integration_limit)
@@ -174,6 +188,13 @@ def calculate_au_pro_au_roc(gt_filenames,
         anomaly_maps=predictions,
         scoring_function=np.max,
         ground_truth_labels=binary_labels)
+
+    plt.figure()
+    plt.plot(roc_curve[0], roc_curve[1], "-")
+    plt.title("ROC Curve - Classification")
+    plt.xlabel("FPR - False Positive Rate")
+    plt.ylabel("TPR - True Positive Rate")
+    plt.savefig(f'./metrics/roc_curve_{channel}.jpg')
 
     # Compute the area under the classification ROC curve.
     au_roc = util.trapezoid(roc_curve[0], roc_curve[1])

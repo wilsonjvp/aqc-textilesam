@@ -13,7 +13,8 @@ import tifffile as tiff
 # OBJECT_NAMES = ['bottle', 'cable', 'capsule', 'carpet', 'grid',
 #                 'hazelnut', 'leather', 'metal_nut', 'pill', 'screw',
 #                 'tile', 'toothbrush', 'transistor', 'wood', 'zipper']
-OBJECT_NAMES = ["fabric"]
+# TODO Read from evaluation directory
+OBJECT_NAMES = ["visible", "infrared"]
 
 
 def trapezoid(x, y, x_max=None):

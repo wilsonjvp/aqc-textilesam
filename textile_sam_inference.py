@@ -201,13 +201,13 @@ parser.add_argument(
 parser.add_argument(
     "--output_segmentation",
     type=str,
-    default="anomaly_maps/fabric/test/defect",
+    default="anomaly_maps",
     help="path to output segmentation predictions",
 )
 parser.add_argument(
     "--output_masks",
     type=str,
-    default="evaluation/fabric/ground_truth/defect",
+    default="evaluation",
     help="path to output ground truth masks",
 )
 parser.add_argument("--device", type=str, default="cuda:0", help="device")
@@ -290,9 +290,6 @@ for step, (img, target) in enumerate(test_dataloader):
         textilesam_seg = textilesam_inference(
             textilesam_model, image_embedding, boxes_np, args.height, args.width
         )
-        # print("textilesam", textilesam_seg.shape)
-        # print("image", img.shape)
-        # print("target mask", masks.shape)
         
         # # Save predictions and masks
         if len(textilesam_seg) > 1:
@@ -300,18 +297,27 @@ for step, (img, target) in enumerate(test_dataloader):
                 # textilesam_seg[0, :, :, :] += textilesam_seg[i, :, :, :]
                 masks[0, :, :, :] += masks[i, :, :, :]
         # else:
+        if "VIS" in image_name:
+            channel = 'visible'
+        elif 'IR' in image_name:
+            channel = "infrared"
+        
+        path_seg = os.path.join(args.output_segmentation, channel, "test", "defect")
+        os.makedirs(path_seg, exist_ok=True)
+        path_out = os.path.join(args.output_masks, channel, "ground_truth", "defect")
+        os.makedirs(path_out, exist_ok=True)
         # Save prediction
         textilesam_seg = np.mean(textilesam_seg, axis=0, keepdims=True)[0,0,...]
         pred = Image.fromarray(textilesam_seg)
         image_name = image_name.split(".")[0] + ".tif"
-        path_to_save = os.path.join(args.output_segmentation, image_name)
+        path_to_save = os.path.join(path_seg, image_name)
         pred.save(path_to_save)
         # Save ground truth
         masks = masks.cpu().numpy()
         masks = np.interp(masks[0,0,...], (0, np.max(masks)), (0, 255))
         gt = Image.fromarray(masks).convert("L")
         image_name = image_name.split(".")[0] + ".png"
-        path_to_save = os.path.join(args.output_masks, image_name)
+        path_to_save = os.path.join(path_out, image_name)
         gt.save(path_to_save)
 
         count += 1
