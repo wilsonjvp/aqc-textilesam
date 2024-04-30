@@ -363,8 +363,8 @@ def main():
                 else:
                     texsam_pred = textile_model(img, boxes_np)
                     # print(texsam_pred, masks.shape)
-                    seg_loss_ = seg_loss(texsam_pred, masks)
-                    ce_loss_ = ce_loss(texsam_pred, masks.float())
+                    seg_loss_ = seg_loss(texsam_pred, masks) # Dice
+                    ce_loss_ = ce_loss(texsam_pred, masks.float()) # BCE
                     loss = seg_loss_ + ce_loss_
                     loss.backward()
                     optimizer.step()

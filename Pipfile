@@ -23,6 +23,9 @@ tifffile = "*"
 tabulate = "*"
 scipy = "*"
 timm = "*"
+psycopg = {extras = ["binary"], version = "*"}
+sqlalchemy = "*"
+python-dotenv = "*"
 
 [dev-packages]
 

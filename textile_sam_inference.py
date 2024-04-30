@@ -229,7 +229,7 @@ def get_args_parser():
 
     args = parser.parse_args()
     return args
-
+    
 def main():
     args = get_args_parser()
     os.makedirs(args.output_segmentation, exist_ok=True)
@@ -272,6 +272,7 @@ def main():
         pin_memory=True,
     )
 
+    # Reading images name from COCO file
     with open(args.test_annotations_path, "r") as j:
         data = json.load(j)
 
@@ -309,6 +310,7 @@ def main():
             os.makedirs(path_seg, exist_ok=True)
             path_out = os.path.join(args.output_masks, channel, "ground_truth", "defect")
             os.makedirs(path_out, exist_ok=True)
+
             # Save prediction
             textilesam_seg = np.mean(textilesam_seg, axis=0, keepdims=True)[0,0,...]
             pred = Image.fromarray(textilesam_seg)
@@ -317,6 +319,7 @@ def main():
             image_name = image_name.split(".")[0] + ".tif"
             path_to_save = os.path.join(path_seg, image_name)
             pred.save(path_to_save)
+
             # Save ground truth
             masks = masks.cpu().numpy()
             masks = np.interp(masks[0,0,...], (0, np.max(masks)), (0, 255))
@@ -326,8 +329,6 @@ def main():
             image_name = image_name.split(".")[0] + ".png"
             path_to_save = os.path.join(path_out, image_name)
             gt.save(path_to_save)
-
-            count += 1
 
 if __name__ == "__main__":
     main()
