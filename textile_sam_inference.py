@@ -184,140 +184,150 @@ def textilesam_inference(self, img_embed, boxes, H=1024, W=4096):
         predicted_masks[:, i, :, :] = low_res_pred
     return predicted_masks
 
+def get_args_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--root_path",
+        type=str,
+        default="data",
+        help="path to training images",
+    )
+    parser.add_argument(
+        "--test_annotations_path",
+        type=str,
+        default="data/annotations_qualitex_reviewed_22_03_2024.json",
+        help="path to testation annotations",
+    )
+    parser.add_argument(
+        "--output_segmentation",
+        type=str,
+        default="anomaly_maps",
+        help="path to output segmentation predictions",
+    )
+    parser.add_argument(
+        "--output_masks",
+        type=str,
+        default="evaluation",
+        help="path to output ground truth masks",
+    )
+    parser.add_argument("--device", type=str, default="cuda:0", help="device")
+    parser.add_argument(
+        "-chk",
+        "--checkpoint",
+        type=str,
+        default="weights/textilesam_vit_b.pth",
+        help="path to the trained model",
+    )
+    parser.add_argument("-num_workers", type=int, default=4)
+    parser.add_argument("-model_type", type=str, default="vit_b")
+    parser.add_argument("-work_dir", type=str, default="./work_dir")
+    parser.add_argument("-width", type=int, default=1024)
+    parser.add_argument("-height", type=int, default=1024)
+    parser.add_argument("-heating_num", type=int, default=50)
+    parser.add_argument("-sample_rate", type=int, default=4)
+    parser.add_argument("-resize", type=int, default=1024)
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--root_path",
-    type=str,
-    default="data",
-    help="path to training images",
-)
-parser.add_argument(
-    "--test_annotations_path",
-    type=str,
-    default="data/annotations_qualitex_reviewed_22_03_2024.json",
-    help="path to testation annotations",
-)
-parser.add_argument(
-    "--output_segmentation",
-    type=str,
-    default="anomaly_maps",
-    help="path to output segmentation predictions",
-)
-parser.add_argument(
-    "--output_masks",
-    type=str,
-    default="evaluation",
-    help="path to output ground truth masks",
-)
-parser.add_argument("--device", type=str, default="cuda:0", help="device")
-parser.add_argument(
-    "-chk",
-    "--checkpoint",
-    type=str,
-    default="weights/textilesam_vit_b.pth",
-    help="path to the trained model",
-)
-parser.add_argument("-num_workers", type=int, default=4)
-parser.add_argument("-model_type", type=str, default="vit_b")
-parser.add_argument("-work_dir", type=str, default="./work_dir")
-parser.add_argument("-width", type=int, default=1024)
-parser.add_argument("-height", type=int, default=1024)
-parser.add_argument("-heating_num", type=int, default=50)
-parser.add_argument("-sample_rate", type=int, default=4)
+    args = parser.parse_args()
+    return args
 
-args = parser.parse_args()
+def main():
+    args = get_args_parser()
+    os.makedirs(args.output_segmentation, exist_ok=True)
+    os.makedirs(args.output_masks, exist_ok=True)
 
+    if torch.cuda.is_available:
+        device = torch.device(args.device)
+    else:
+        device = "cpu"
 
-os.makedirs(args.output_segmentation, exist_ok=True)
-os.makedirs(args.output_masks, exist_ok=True)
+    textilesam_model = sam_model_registry[args.model_type](checkpoint=args.checkpoint)
+    textilesam_model = textilesam_model.to(device)
+    textilesam_model.eval()
 
-if torch.cuda.is_available:
-    device = torch.device(args.device)
-else:
-    device = "cpu"
+    test_transforms = transforms.Compose(
+        [
+            transforms.ToImage(),
+            transforms.Resize((1024, 1024)),
+            transforms.ToDtype(torch.float32, scale=True),
+            transforms.ToTensor(),
+            #   transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ]
+    )
 
-textilesam_model = sam_model_registry[args.model_type](checkpoint=args.checkpoint)
-textilesam_model = textilesam_model.to(device)
-textilesam_model.eval()
+    test_dataset = datasets.CocoDetection(
+        root=os.path.join(args.root_path, "train"),
+        annFile=args.test_annotations_path,
+        transforms=test_transforms,
+    )
+    test_dataset = datasets.wrap_dataset_for_transforms_v2(
+        test_dataset, target_keys=["boxes", "masks", "image_id"]
+    )
 
-test_transforms = transforms.Compose(
-    [
-        transforms.ToImage(),
-        transforms.Resize((1024, 1024)),
-        transforms.ToDtype(torch.float32, scale=True),
-        transforms.ToTensor(),
-        #   transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ]
-)
+    print("Number of test samples: ", len(test_dataset))
 
-test_dataset = datasets.CocoDetection(
-    root=os.path.join(args.root_path, "train"),
-    annFile=args.test_annotations_path,
-    transforms=test_transforms,
-)
-test_dataset = datasets.wrap_dataset_for_transforms_v2(
-    test_dataset, target_keys=["boxes", "masks", "image_id"]
-)
+    test_dataloader = DataLoader(
+        test_dataset,
+        batch_size=1,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
 
-print("Number of test samples: ", len(test_dataset))
+    with open(args.test_annotations_path, "r") as j:
+        data = json.load(j)
 
-test_dataloader = DataLoader(
-    test_dataset,
-    batch_size=1,
-    num_workers=args.num_workers,
-    pin_memory=True,
-)
+    df_images = pd.DataFrame(data["images"])
 
-with open(args.test_annotations_path, "r") as j:
-    data = json.load(j)
+    count = 0
+    for step, (img, target) in enumerate(test_dataloader):
+        image_id = target["image_id"].cpu().numpy()[0]
+        image_name = df_images[df_images.id == image_id]["file_name"].values[0]
+        print(step, image_name)
 
-df_images = pd.DataFrame(data["images"])
+        if "masks" in target.keys():
+            masks = target["masks"].permute(1, 0, 2, 3)
+            bboxes = target["boxes"].permute(1, 0, 2)
+            boxes_np = bboxes.detach().cpu().numpy()
+            masks, img = masks.to(device), img.to(device)
+            with torch.no_grad():
+                image_embedding = textilesam_model.image_encoder(img)
+            textilesam_seg = textilesam_inference(
+                textilesam_model, image_embedding, boxes_np, args.height, args.width
+            )
+            
+            # # Save predictions and masks
+            if len(textilesam_seg) > 1:
+                for i in range(1, len(textilesam_seg)):
+                    # textilesam_seg[0, :, :, :] += textilesam_seg[i, :, :, :]
+                    masks[0, :, :, :] += masks[i, :, :, :]
+            # else:
+            if "VIS" in image_name:
+                channel = 'visible'
+            elif 'IR' in image_name:
+                channel = "infrared"
+            
+            path_seg = os.path.join(args.output_segmentation, channel, "test", "defect")
+            os.makedirs(path_seg, exist_ok=True)
+            path_out = os.path.join(args.output_masks, channel, "ground_truth", "defect")
+            os.makedirs(path_out, exist_ok=True)
+            # Save prediction
+            textilesam_seg = np.mean(textilesam_seg, axis=0, keepdims=True)[0,0,...]
+            pred = Image.fromarray(textilesam_seg)
+            if args.resize < 1024:
+                pred = pred.resize((args.resize, args.resize))
+            image_name = image_name.split(".")[0] + ".tif"
+            path_to_save = os.path.join(path_seg, image_name)
+            pred.save(path_to_save)
+            # Save ground truth
+            masks = masks.cpu().numpy()
+            masks = np.interp(masks[0,0,...], (0, np.max(masks)), (0, 255))
+            gt = Image.fromarray(masks).convert("L")
+            if args.resize < 1024:
+                gt = gt.resize((args.resize, args.resize))
+            image_name = image_name.split(".")[0] + ".png"
+            path_to_save = os.path.join(path_out, image_name)
+            gt.save(path_to_save)
 
-count = 0
-for step, (img, target) in enumerate(test_dataloader):
-    image_id = target["image_id"].cpu().numpy()[0]
-    image_name = df_images[df_images.id == image_id]["file_name"].values[0]
-    print(step, image_name)
+            count += 1
 
-    if "masks" in target.keys() and count < 30:
-        masks = target["masks"].permute(1, 0, 2, 3)
-        bboxes = target["boxes"].permute(1, 0, 2)
-        boxes_np = bboxes.detach().cpu().numpy()
-        masks, img = masks.to(device), img.to(device)
-        with torch.no_grad():
-            image_embedding = textilesam_model.image_encoder(img)
-        textilesam_seg = textilesam_inference(
-            textilesam_model, image_embedding, boxes_np, args.height, args.width
-        )
-        
-        # # Save predictions and masks
-        if len(textilesam_seg) > 1:
-            for i in range(1, len(textilesam_seg)):
-                # textilesam_seg[0, :, :, :] += textilesam_seg[i, :, :, :]
-                masks[0, :, :, :] += masks[i, :, :, :]
-        # else:
-        if "VIS" in image_name:
-            channel = 'visible'
-        elif 'IR' in image_name:
-            channel = "infrared"
-        
-        path_seg = os.path.join(args.output_segmentation, channel, "test", "defect")
-        os.makedirs(path_seg, exist_ok=True)
-        path_out = os.path.join(args.output_masks, channel, "ground_truth", "defect")
-        os.makedirs(path_out, exist_ok=True)
-        # Save prediction
-        textilesam_seg = np.mean(textilesam_seg, axis=0, keepdims=True)[0,0,...]
-        pred = Image.fromarray(textilesam_seg)
-        image_name = image_name.split(".")[0] + ".tif"
-        path_to_save = os.path.join(path_seg, image_name)
-        pred.save(path_to_save)
-        # Save ground truth
-        masks = masks.cpu().numpy()
-        masks = np.interp(masks[0,0,...], (0, np.max(masks)), (0, 255))
-        gt = Image.fromarray(masks).convert("L")
-        image_name = image_name.split(".")[0] + ".png"
-        path_to_save = os.path.join(path_out, image_name)
-        gt.save(path_to_save)
-
-        count += 1
+if __name__ == "__main__":
+    main()

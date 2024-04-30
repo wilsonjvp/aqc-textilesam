@@ -165,6 +165,7 @@ def calculate_au_pro_au_roc(gt_filenames,
     else:
         channel = "infrared"
 
+    # Save PRO curve
     plt.figure()
     plt.plot(pro_curve[0], pro_curve[1], "-")
     plt.title("PRO Curve - Localization")
@@ -189,6 +190,7 @@ def calculate_au_pro_au_roc(gt_filenames,
         scoring_function=np.max,
         ground_truth_labels=binary_labels)
 
+    # Save ROC curve
     plt.figure()
     plt.plot(roc_curve[0], roc_curve[1], "-")
     plt.title("ROC Curve - Classification")
