@@ -55,6 +55,11 @@ def parse_user_arguments():
                         choices=util.OBJECT_NAMES,
                         default=util.OBJECT_NAMES)
 
+    parser.add_argument('--include_good',
+                        type=bool,
+                        default=True,
+                        )
+
     args = parser.parse_args()
 
     # Check that the PRO integration limit is within the valid range.
@@ -63,7 +68,7 @@ def parse_user_arguments():
     return args
 
 
-def parse_dataset_files(object_name, dataset_base_dir, anomaly_maps_dir):
+def parse_dataset_files(object_name, dataset_base_dir, anomaly_maps_dir, include_good):
     """Parse the filenames for one object of the MVTec AD dataset.
 
     Args:
@@ -73,6 +78,12 @@ def parse_dataset_files(object_name, dataset_base_dir, anomaly_maps_dir):
     """
     assert object_name in util.OBJECT_NAMES
 
+    # Include good images on evaluation
+    if include_good:
+        good = ""
+    else:
+        good = "good"
+        
     # Store a list of all ground truth filenames.
     gt_filenames = []
 
@@ -98,7 +109,8 @@ def parse_dataset_files(object_name, dataset_base_dir, anomaly_maps_dir):
                        if path.splitext(file)[1] == '.png']
 
         # If subdir is not 'good', derive corresponding GT names.
-        if subdir != '': # "good"
+
+        if subdir != good: # "good"
             gt_filenames.extend(
                 [path.join(gt_base_dir, subdir, file + '.png')
                  for file in test_images])
@@ -231,7 +243,8 @@ def main():
             parse_dataset_files(
                 object_name=obj,
                 dataset_base_dir=args.dataset_base_dir,
-                anomaly_maps_dir=args.anomaly_maps_dir)
+                anomaly_maps_dir=args.anomaly_maps_dir,
+                include_good=args.include_good)
 
         # Calculate the PRO and ROC curves.
         au_pro, au_roc, pro_curve, roc_curve = \
