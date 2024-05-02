@@ -22,6 +22,7 @@ import json
 from pycocotools.coco import COCO
 from PIL import Image
 import pandas as pd
+from tqdm import tqdm
 
 if torch.cuda.is_available():
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -184,6 +185,36 @@ def textilesam_inference(self, img_embed, boxes, H=1024, W=4096):
         predicted_masks[:, i, :, :] = low_res_pred
     return predicted_masks
 
+@torch.no_grad()
+def textilesam_inference_no_prompt(self, img_embed, H=1024, W=4096):
+    predicted_masks = np.zeros((1, img_embed.shape[0], H, W))
+    sparse_embeddings, dense_embeddings = self.prompt_encoder(
+        points=None,
+        boxes=None,
+        masks=None,
+    )
+    low_res_logits, _ = self.mask_decoder(
+        image_embeddings=img_embed,  # (B, 256, 64, 64)
+        image_pe=self.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
+        sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
+        dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
+        multimask_output=False,
+    )
+
+    # low_res_pred = torch.sigmoid(low_res_logits)  # (1, 1, 256, 256)
+    low_res_pred = low_res_logits
+
+    low_res_pred = F.interpolate(
+        low_res_pred,
+        size=(H, W),
+        mode="bilinear",
+        align_corners=False,
+    )  # (1, 1, gt.shape)
+    low_res_pred = low_res_pred.squeeze().cpu().numpy()  # (256, 256)
+    # textsam_seg = (low_res_pred > 0.5).astype(np.uint8)
+    predicted_masks[:, 0, :, :] = low_res_pred
+    return predicted_masks
+
 def get_args_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -196,6 +227,12 @@ def get_args_parser():
         "--test_annotations_path",
         type=str,
         default="data/annotations_qualitex_reviewed_22_03_2024.json",
+        help="path to testation annotations",
+    )
+    parser.add_argument(
+        "--good_images_path",
+        type=str,
+        default=None,
         help="path to testation annotations",
     )
     parser.add_argument(
@@ -271,6 +308,55 @@ def main():
         num_workers=args.num_workers,
         pin_memory=True,
     )
+    # Launch inference for good images
+    if args.good_images_path is not None:
+        image_path_vis = [x for x in os.listdir(args.good_images_path)]
+        #TODO Add to parser
+        good_images_path_ir = "evaluation/infrared/test/good"
+        image_path_ir = [x for x in os.listdir(good_images_path_ir)]
+        image_paths = image_path_vis + image_path_ir
+        print("Saving anomaly maps for good images ...")
+        for image_name in tqdm(image_paths):
+            if "VIS" in image_name:
+                channel = 'visible'
+                path = args.good_images_path
+            elif 'IR' in image_name:
+                channel = "infrared"
+                path = good_images_path_ir
+            image_path = os.path.join(path, image_name)
+            image = Image.open(image_path)
+            image = test_transforms(image)
+            image = image[None]
+            image = image.to(device)
+            with torch.no_grad():
+                image_embedding = textilesam_model.image_encoder(image)
+            textilesam_seg = textilesam_inference_no_prompt(
+                textilesam_model, image_embedding, args.height, args.width
+            )
+
+            path_seg = os.path.join(args.output_segmentation, channel, "test", "good")
+            os.makedirs(path_seg, exist_ok=True)
+            path_out = os.path.join(args.output_masks, channel, "ground_truth", "good")
+            os.makedirs(path_out, exist_ok=True)
+
+            # Save prediction
+            textilesam_seg = np.mean(textilesam_seg, axis=0, keepdims=True)[0,0,...]
+            pred = Image.fromarray(textilesam_seg)
+            if args.resize < 1024:
+                pred = pred.resize((args.resize, args.resize))
+            image_name = image_name.split(".")[0] + ".tif"
+            path_to_save = os.path.join(path_seg, image_name)
+            pred.save(path_to_save)
+
+            # Save ground truth
+            masks = np.zeros((1024, 1024))
+            gt = Image.fromarray(masks).convert("L")
+            if args.resize < 1024:
+                gt = gt.resize((args.resize, args.resize))
+            image_name = image_name.split(".")[0] + ".png"
+            path_to_save = os.path.join(path_out, image_name)
+            gt.save(path_to_save)
+
 
     # Reading images name from COCO file
     with open(args.test_annotations_path, "r") as j:
@@ -278,11 +364,12 @@ def main():
 
     df_images = pd.DataFrame(data["images"])
 
+    # Launch inference for defective images
     count = 0
-    for step, (img, target) in enumerate(test_dataloader):
+    print("Saving anomaly maps for defective images")
+    for step, (img, target) in enumerate(tqdm(test_dataloader)):
         image_id = target["image_id"].cpu().numpy()[0]
         image_name = df_images[df_images.id == image_id]["file_name"].values[0]
-        print(step, image_name)
 
         if "masks" in target.keys():
             masks = target["masks"].permute(1, 0, 2, 3)

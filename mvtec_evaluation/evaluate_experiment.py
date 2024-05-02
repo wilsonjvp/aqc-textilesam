@@ -98,7 +98,7 @@ def parse_dataset_files(object_name, dataset_base_dir, anomaly_maps_dir):
                        if path.splitext(file)[1] == '.png']
 
         # If subdir is not 'good', derive corresponding GT names.
-        if subdir != 'good':
+        if subdir != '': # "good"
             gt_filenames.extend(
                 [path.join(gt_base_dir, subdir, file + '.png')
                  for file in test_images])
